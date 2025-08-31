@@ -10,9 +10,11 @@ from langchain_core.tools import tool
 from langchain_community.tools import DuckDuckGoSearchRun
 from langgraph.prebuilt import ToolNode, tools_condition
 import sqlite3
+import requests
+import os 
 
 load_dotenv()
-
+stockprice_api_key = os.getenv("ALPHAVANTAGE_API_KEY")
 model = ChatOpenAI(model='gpt-4o-mini')
 
 # Tools 
@@ -42,26 +44,40 @@ def calculator(first_num: float, second_num: float, operation: str)->dict:
     except Exception as e:
         return {'error':str(e)}
 
+@tool
+def get_stock_price(symbol: str) -> dict:
+    """
+    Fetch latest stock price for a given symbol (e.g. 'AAPL', 'TSLA') 
+    using Alpha Vantage with API key in the URL.
+    """
+    url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey={stockprice_api_key}"
+    r = requests.get(url)
+    return r.json()
+
+tools = [search_tool,calculator,get_stock_price]
+model_with_tools = model.bind_tools(tools)
 
 class chatbot_state(TypedDict):
     messages: Annotated[list[BaseMessage],add_messages]
 
 
-
-
-
-conn = sqlite3.connect(database='chatbot.db',check_same_thread=False)
-
-checkpointer = SqliteSaver(conn=conn)
-graph = StateGraph(chatbot_state)
-
 def chatbot_func(state: chatbot_state):
     messages = state['messages']
-    response = model.invoke(messages)
+    response = model_with_tools.invoke(messages)
     return {'messages':[response]}
 
+tool_node = ToolNode(tools)
+
+conn = sqlite3.connect(database='chatbot.db',check_same_thread=False)
+checkpointer = SqliteSaver(conn=conn)
+
+
+graph = StateGraph(chatbot_state)
 graph.add_node('chatbot_func',chatbot_func)
+graph.add_node('tools',tool_node)
 graph.add_edge(START,'chatbot_func')
+graph.add_conditional_edges('chatbot_func',tools_condition)
+graph.add_edge('tools',chatbot_func)
 graph.add_edge('chatbot_func',END)
 
 chatbot = graph.compile(checkpointer=checkpointer)
