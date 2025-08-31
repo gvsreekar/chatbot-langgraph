@@ -77,7 +77,7 @@ graph.add_node('chatbot_func',chatbot_func)
 graph.add_node('tools',tool_node)
 graph.add_edge(START,'chatbot_func')
 graph.add_conditional_edges('chatbot_func',tools_condition)
-graph.add_edge('tools',chatbot_func)
+graph.add_edge('tools','chatbot_func')
 graph.add_edge('chatbot_func',END)
 
 chatbot = graph.compile(checkpointer=checkpointer)
